@@ -1,3 +1,31 @@
+# Patched Fork
+
+This is a personal fork with the following bug-fix patches applied on the `patched` branch:
+
+| Branch | Issue/PR | Description |
+|--------|----------|-------------|
+| `fix/5117-pane-size-corruption` | [#5117](https://github.com/wezterm/wezterm/issues/5117) | Pane size corruption on mux client detach |
+| `fix/5832-user-vars-mux-sync` | [#5832](https://github.com/wezterm/wezterm/issues/5832) | user_vars not synced on mux reconnect |
+| `fix/2056-ime-selected-string` | [#2056](https://github.com/wezterm/wezterm/pull/2056) | IME pre-edit text highlight (from kumattau) |
+| `strackeror/sequence-pane-focus-events` | [#7399](https://github.com/wezterm/wezterm/pull/7399) | Focus event infinite loop fix (from Strackeror) |
+
+## Branch structure
+
+- `main` — tracks upstream `wezterm/wezterm`
+- `patched` — daily-use branch (all fix branches merged)
+- `fix/*` — individual fix branches
+
+## Building
+
+```bash
+git checkout patched
+cargo build --release
+```
+
+Pre-built binaries (Windows + Ubuntu 22.04) can be generated via Actions → "Build patched" → Run workflow.
+
+---
+
 # Wez's Terminal
 
 <img height="128" alt="WezTerm Icon" src="https://raw.githubusercontent.com/wezterm/wezterm/main/assets/icon/wezterm-icon.svg" align="left"> *A GPU-accelerated cross-platform terminal emulator and multiplexer written by <a href="https://github.com/wez">@wez</a> and implemented in <a href="https://www.rust-lang.org/">Rust</a>*
