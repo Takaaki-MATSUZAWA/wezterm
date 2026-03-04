@@ -132,3 +132,72 @@ jobs:
             target/release/wezterm-gui
             target/release/wezterm-mux-server
           retention-days: 30
+
+
+  build-ubuntu-aarch64:
+    runs-on: "ubuntu-22.04-arm"
+    container: "ubuntu:22.04"
+    env:
+      CARGO_INCREMENTAL: "0"
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+
+    steps:
+      - name: "set APT to non-interactive"
+        shell: bash
+        run: "echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections"
+      - name: "Update APT"
+        shell: bash
+        run: "apt update"
+      - name: "Install git"
+        shell: bash
+        run: "apt-get install -y git"
+      - name: "Install curl"
+        shell: bash
+        run: "apt-get install -y curl"
+      - name: "Workaround git permissions issue"
+        shell: bash
+        run: "git config --global --add safe.directory /__w/wezterm/wezterm"
+      - name: "checkout repo"
+        uses: actions/checkout@v4
+        with:
+          submodules: "recursive"
+      - name: "Install Rust"
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          target: "aarch64-unknown-linux-gnu"
+      - name: "Compile with sccache"
+        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: "Cache Rust Dependencies"
+        uses: actions/cache@v4
+        id: cache-cargo-vendor
+        with:
+          path: |
+            vendor
+            .cargo/config
+          key: "cargo-deps-aarch64-${{ hashFiles('**/Cargo.lock') }}"
+      - name: "Vendor dependecies"
+        if: steps.cache-cargo-vendor.outputs.cache-hit != 'true'
+        shell: bash
+        run: "cargo vendor --locked --versioned-dirs >> .cargo/config"
+      - name: "Install System Deps"
+        shell: bash
+        run: "env CI=yes PATH=$PATH ./get-deps"
+      - name: "Build wezterm (Release mode)"
+        shell: bash
+        run: "cargo build -p wezterm --release"
+      - name: "Build wezterm-gui (Release mode)"
+        shell: bash
+        run: "cargo build -p wezterm-gui --release"
+      - name: "Build wezterm-mux-server (Release mode)"
+        shell: bash
+        run: "cargo build -p wezterm-mux-server --release"
+      - name: "Upload artifact"
+        uses: actions/upload-artifact@v4
+        with:
+          name: "patched-ubuntu22.04-aarch64"
+          path: |
+            target/release/wezterm
+            target/release/wezterm-gui
+            target/release/wezterm-mux-server
+          retention-days: 30
