@@ -138,6 +138,7 @@ impl ClientPane {
         match pdu {
             Pdu::GetPaneRenderChangesResponse(mut delta) => {
                 *self.mouse_grabbed.lock() = delta.mouse_grabbed;
+                *self.user_vars.lock() = std::mem::take(&mut delta.user_vars);
 
                 let bonus_lines = std::mem::take(&mut delta.bonus_lines);
                 let client = { Arc::clone(&self.renderable.lock().inner.borrow().client) };
@@ -225,6 +226,17 @@ impl ClientPane {
                 // has been changed on the server, so we work to apply
                 // it here.
                 log::trace!("advised of remote pane focus: {pane_id}");
+
+                // Match the server's focus state before applying it locally.
+                // `focus_pane_and_containing_tab` calls through to
+                // `focus_changed(true)`, and for remote panes that normally
+                // advises the server of the new focus. Without this guard, a
+                // server-originated focus notification can be echoed back as a
+                // fresh `SetFocusedPane` request.
+                {
+                    let mut focused = self.client.focused_remote_pane_id.lock().unwrap();
+                    *focused = Some(pane_id);
+                }
 
                 let mux = Mux::get();
                 if let Err(err) = mux.focus_pane_and_containing_tab(self.local_pane_id) {
@@ -406,21 +418,40 @@ impl Pane for ClientPane {
             // Invalidate any cached rows on a resize
             inner.make_all_stale();
 
-            let client = Arc::clone(&self.client);
-            let remote_pane_id = self.remote_pane_id;
-            let remote_tab_id = self.remote_tab_id;
-            promise::spawn::spawn(async move {
-                client
-                    .client
-                    .resize(Resize {
-                        containing_tab_id: remote_tab_id,
-                        pane_id: remote_pane_id,
-                        size,
-                    })
-                    .await
-            })
-            .detach();
-            inner.update_last_send();
+            // Domain detaching can implicitly trigger pane resizes via
+            // kill_panes_in_domain -> remove_pane_if. We need to check here
+            // whether the domain is in the detached state; if so then we must
+            // skip sending the resize to the server to avoid corrupting
+            // the pane sizes stored on the server.
+            let local_domain_id = self.client.local_domain_id;
+            let mut send_resize = true;
+
+            {
+                let mux = Mux::get();
+                if let Some(client_domain) = mux.get_domain(local_domain_id) {
+                    if client_domain.state() == mux::domain::DomainState::Detached {
+                        send_resize = false;
+                    }
+                }
+            }
+
+            if send_resize {
+                let client = Arc::clone(&self.client);
+                let remote_pane_id = self.remote_pane_id;
+                let remote_tab_id = self.remote_tab_id;
+                promise::spawn::spawn(async move {
+                    client
+                        .client
+                        .resize(Resize {
+                            containing_tab_id: remote_tab_id,
+                            pane_id: remote_pane_id,
+                            size,
+                        })
+                        .await
+                })
+                .detach();
+                inner.update_last_send();
+            }
         }
         Ok(())
     }

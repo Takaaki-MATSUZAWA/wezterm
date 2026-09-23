@@ -6,7 +6,7 @@ use mux::client::ClientId;
 use mux::domain::SplitSource;
 use mux::pane::{CachePolicy, Pane, PaneId};
 use mux::renderable::{RenderableDimensions, StableCursorPosition};
-use mux::tab::TabId;
+use mux::tab::{NotifyMux, TabId};
 use mux::{Mux, MuxNotification};
 use promise::spawn::spawn_into_main_thread;
 use std::collections::HashMap;
@@ -139,6 +139,7 @@ impl PerPane {
             working_dir: working_dir.map(Into::into),
             input_serial: force_with_input_serial,
             seqno: self.seqno,
+            user_vars: pane.copy_user_vars(),
         })
     }
 }
@@ -359,7 +360,7 @@ impl SessionHandler {
                             let tab = mux
                                 .get_tab(tab_id)
                                 .ok_or_else(|| anyhow::anyhow!("tab {tab_id} not found"))?;
-                            tab.set_active_pane(&pane);
+                            tab.set_active_pane_with_notify(&pane, NotifyMux::No);
 
                             mux.record_focus_for_current_identity(pane_id);
                             mux.notify(mux::MuxNotification::PaneFocused(pane_id));

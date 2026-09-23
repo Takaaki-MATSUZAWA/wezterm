@@ -5,7 +5,7 @@ use crate::os::x11::xsettings::*;
 use crate::os::Connection;
 use crate::screen::{ScreenInfo, Screens};
 use crate::spawn::*;
-use crate::{Appearance, DeadKeyStatus, ScreenRect};
+use crate::{Appearance, Composing, ComposingAttribute, DeadKeyStatus, ScreenRect};
 use anyhow::{anyhow, bail, Context as _};
 use mio::event::Source;
 use mio::unix::SourceFd;
@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex};
 use x11::xlib;
 use xcb::x::Atom;
 use xcb::{dri2, Raw, Xid};
+use xcb_imdkit::InputFeedback;
 
 enum ScreenResources {
     Current(xcb::randr::GetScreenResourcesCurrentReply),
@@ -892,7 +893,23 @@ impl XConnection {
                         let mut inner = window.lock().unwrap();
 
                         let text = info.text();
-                        let status = DeadKeyStatus::Composing(text);
+
+                        let mut attr = vec![];
+                        if !text.is_empty() {
+                            for (i, feedback) in info.feedback_array().iter().enumerate() {
+                                if feedback & InputFeedback::REVERSE.bits() != 0 {
+                                    if attr.is_empty() {
+                                        attr = vec![ComposingAttribute::NONE; i];
+                                    }
+                                    attr.push(ComposingAttribute::SELECTED);
+                                } else if !attr.is_empty() {
+                                    attr.push(ComposingAttribute::NONE);
+                                }
+                            }
+                        }
+                        let attr = if !attr.is_empty() { Some(attr) } else { None };
+
+                        let status = DeadKeyStatus::Composing(Composing { text, attr });
                         inner.dispatch_ime_compose_status(status);
                     }
                 });

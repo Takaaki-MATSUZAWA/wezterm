@@ -1,8 +1,11 @@
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
-    #[cfg(windows)]
-    {
+    // Check the *target* OS rather than using `#[cfg(windows)]`: build
+    // scripts run on the host, so cfg(windows) would skip embedding the
+    // manifest and icon resources when cross compiling for Windows
+    // (eg: via cargo-xwin from Linux).
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         use std::io::Write;
         use std::path::Path;
 
@@ -12,15 +15,19 @@ fn main() {
             .unwrap();
         let windows_dir = repo_dir.join("assets").join("windows");
 
+        // Paths are joined natively (so they also work when cross compiling
+        // from a non-Windows host) and escaped for use in an .rc string.
+        let rc_path = |p: &Path| p.display().to_string().replace("\\", "\\\\");
+
         let rcfile_name = Path::new(&std::env::var_os("OUT_DIR").unwrap()).join("resource.rc");
         let mut rcfile = std::fs::File::create(&rcfile_name).unwrap();
         write!(
             rcfile,
             r#"
 #include <winres.h>
-1 RT_MANIFEST "{win}\\console.manifest"
+1 RT_MANIFEST "{manifest}"
 "#,
-            win = windows_dir.display().to_string().replace("\\", "\\\\"),
+            manifest = rc_path(&windows_dir.join("console.manifest")),
         )
         .unwrap();
         drop(rcfile);
