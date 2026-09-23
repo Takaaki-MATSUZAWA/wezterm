@@ -1,0 +1,25 @@
+# 目的: Linux 上で Windows (x86_64-pc-windows-msvc) 向けの wezterm 一式をクロスビルドする環境イメージ
+# 関連: ci/docker/build.sh（これを経由して使う）, ci/docker/inside-windows.sh
+# 前提: cargo-xwin が Microsoft の CRT / Windows SDK を自動取得する。
+#       これは Microsoft のライセンスに同意したものとして扱われる（XWIN_ACCEPT_LICENSE=1）
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN echo 'APT::Install-Recommends "0";' > /etc/apt/apt.conf.d/99-no-recommends \
+ && apt-get update \
+ && apt-get install -y ca-certificates curl git build-essential pkg-config perl make cmake nasm \
+      clang lld llvm zip xz-utils \
+ && rm -rf /var/lib/apt/lists/*
+
+ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo PATH=/opt/cargo/bin:$PATH
+ARG RUST_VERSION=stable
+RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain ${RUST_VERSION} \
+ && rustup target add x86_64-pc-windows-msvc \
+ && cargo install --locked cargo-xwin \
+ && rm -rf /opt/cargo/registry /opt/cargo/git \
+ && chmod -R a+rwX /opt/rustup /opt/cargo
+
+ENV XWIN_ACCEPT_LICENSE=1 XWIN_CACHE_DIR=/opt/xwin-cache
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+RUN git config --system url."https://github.com/".insteadOf "git@github.com:" \
+ && git config --system --add safe.directory '*'
