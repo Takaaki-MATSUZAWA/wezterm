@@ -23,6 +23,22 @@ enum Item {
     Readable,
 }
 
+/// Removes the mux subscriber when the session ends.
+/// Without this, the subscriber (and the channel it holds a sender for,
+/// including its queue buffer) is only pruned when the next mux
+/// notification is delivered.  On an idle mux server that may never
+/// happen, so every short lived client connection (eg: `wezterm cli list`)
+/// would leak memory.
+struct MuxSubscription(usize);
+
+impl Drop for MuxSubscription {
+    fn drop(&mut self) {
+        if let Some(mux) = Mux::try_get() {
+            mux.unsubscribe(self.0);
+        }
+    }
+}
+
 pub async fn process<T>(stream: T) -> anyhow::Result<()>
 where
     T: 'static,
@@ -58,11 +74,11 @@ where
     });
     let mut handler = SessionHandler::new(pdu_sender);
 
-    {
+    let _subscription = {
         let mux = Mux::get();
         let tx = item_tx.clone();
-        mux.subscribe(move |n| tx.try_send(Item::Notif(n)).is_ok());
-    }
+        MuxSubscription(mux.subscribe(move |n| tx.try_send(Item::Notif(n)).is_ok()))
+    };
 
     loop {
         let rx_msg = item_rx.recv();

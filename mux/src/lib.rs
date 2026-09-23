@@ -697,7 +697,10 @@ impl Mux {
         self.clients.write().remove(client_id);
     }
 
-    pub fn subscribe<F>(&self, subscriber: F)
+    /// Register a notification subscriber.
+    /// The subscriber is removed when it returns false, or when
+    /// `unsubscribe` is called with the returned id.
+    pub fn subscribe<F>(&self, subscriber: F) -> usize
     where
         F: Fn(MuxNotification) -> bool + 'static + Send + Sync,
     {
@@ -705,6 +708,18 @@ impl Mux {
         self.subscribers
             .write()
             .insert(sub_id, Box::new(subscriber));
+        sub_id
+    }
+
+    /// Remove a subscriber previously registered via `subscribe`.
+    /// Subscribers are otherwise only pruned lazily when a notification
+    /// is delivered, so an idle mux would retain them (and anything they
+    /// capture) indefinitely.
+    pub fn unsubscribe(&self, sub_id: usize) {
+        // Take the subscriber out while holding the lock, but drop it
+        // after the lock is released in case its destructor re-enters the mux.
+        let removed = self.subscribers.write().remove(&sub_id);
+        drop(removed);
     }
 
     pub fn notify(&self, notification: MuxNotification) {
