@@ -8,8 +8,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN echo 'APT::Install-Recommends "0";' > /etc/apt/apt.conf.d/99-no-recommends \
  && apt-get update \
  && apt-get install -y ca-certificates curl git build-essential pkg-config perl make cmake nasm \
-      clang lld llvm zip xz-utils \
+      clang-19 lld-19 llvm-19 zip xz-utils libssl-dev zlib1g-dev \
  && rm -rf /var/lib/apt/lists/*
+# MSVC の STL ヘッダは Clang 19 以上を要求する。cargo-xwin が呼ぶ素の名前で 19 を使わせる
+RUN for t in clang clang++ lld lld-link ld.lld llvm-ar llvm-lib llvm-rc llvm-ranlib llvm-dlltool llvm-nm llvm-objcopy llvm-strip; do \
+      [ -e /usr/bin/$t-19 ] && ln -sf /usr/bin/$t-19 /usr/local/bin/$t || ln -sf /usr/lib/llvm-19/bin/$t /usr/local/bin/$t; \
+    done
 
 ENV RUSTUP_HOME=/opt/rustup CARGO_HOME=/opt/cargo PATH=/opt/cargo/bin:$PATH
 ARG RUST_VERSION=stable
@@ -18,6 +22,15 @@ RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-too
  && cargo install --locked cargo-xwin \
  && rm -rf /opt/cargo/registry /opt/cargo/git \
  && chmod -R a+rwX /opt/rustup /opt/cargo
+
+# embed-resource 1.x は llvm-rc 用の前処理で cc に "-xc" を渡すが clang-cl はこれを受け付けない。
+# cargo-xwin は clang-cl を PATH 末尾で解決するので、手前にラッパーを置いて /TC に読み替える。
+# また wezterm の .rc が使う <winres.h> は MFC のヘッダで xwin の SDK には無いため、
+# Windows SDK の <winresrc.h> を読む互換ヘッダを追加のインクルードパスに置く。
+RUN mkdir -p /opt/winres-shim \
+ && printf '#pragma once\n#include <winresrc.h>\n#ifndef IDC_STATIC\n#define IDC_STATIC (-1)\n#endif\n' > /opt/winres-shim/winres.h \
+ && printf '#!/bin/bash\nargs=()\nfor a in "$@"; do\n  case "$a" in\n    -xc) args+=(/TC) ;;\n    *) args+=("$a") ;;\n  esac\ndone\nexec /usr/lib/llvm-19/bin/clang --driver-mode=cl /imsvc /opt/winres-shim "${args[@]}"\n' > /usr/local/bin/clang-cl \
+ && chmod +x /usr/local/bin/clang-cl
 
 ENV XWIN_ACCEPT_LICENSE=1 XWIN_CACHE_DIR=/opt/xwin-cache
 ENV CARGO_NET_GIT_FETCH_WITH_CLI=true

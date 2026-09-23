@@ -1,3 +1,51 @@
+# Patched Fork
+
+This is a personal fork (based on [yosagi/wezterm](https://github.com/yosagi/wezterm))
+with the following bug-fix patches applied on top of upstream `main` in the `patched` branch:
+
+| Branch | Issue/PR | Description |
+|--------|----------|-------------|
+| `fix/mux-subscriber-leak` | - | `wezterm-mux-server` leaked ~130KB per client connection (eg: every `wezterm cli list`) on an idle mux |
+| `fix/5117-pane-size-corruption` | [#5117](https://github.com/wezterm/wezterm/issues/5117) | Pane size corruption on mux client detach |
+| `fix/5832-user-vars-mux-sync` | [#5832](https://github.com/wezterm/wezterm/issues/5832) | user_vars not synced on mux reconnect |
+| `fix/focus-reconcile-storm` | [#4390](https://github.com/wezterm/wezterm/issues/4390) | Focus event storm / infinite loop fix (from fculpo, [PR #7763](https://github.com/wezterm/wezterm/pull/7763)) |
+| `fix/2056-ime-selected-string` | [#2056](https://github.com/wezterm/wezterm/pull/2056) | IME pre-edit text highlight (from kumattau) |
+| `fix/make-all-stale-unbounded-cache` | [#7363](https://github.com/wezterm/wezterm/issues/7363) | Unbounded LruCache memory leak fix ([PR #7704](https://github.com/wezterm/wezterm/pull/7704)) |
+
+## Branch structure
+
+- `patched` — daily-use branch (all fix branches merged on top of upstream `main`)
+- `fix/*` — individual fix branches, rebased on upstream `main`
+
+## Building
+
+```bash
+git checkout patched
+cargo build --release
+```
+
+### Distribution binaries with Docker
+
+`ci/docker/build.sh` builds release artifacts in containers (no root, no binfmt/QEMU needed):
+
+| Target | Output |
+|--------|--------|
+| `ubuntu20.04-{amd64,arm64}`, `ubuntu22.04-*`, `ubuntu24.04-*`, `debian12-*` | headless `wezterm` (cli) + `wezterm-mux-server` as `.tar.xz` (arm64 is cross compiled) |
+| `windows-x64` | full WezTerm zip (GUI included), cross compiled with [cargo-xwin](https://github.com/rust-cross/cargo-xwin) |
+
+```bash
+ci/docker/build.sh list      # show targets
+ci/docker/build.sh linux     # all Linux targets
+ci/docker/build.sh windows   # Windows x64
+ci/docker/build.sh all
+```
+
+Artifacts are written to `dist/<tag>/`.  The Windows build downloads the
+Microsoft CRT and Windows SDK via cargo-xwin, which implies accepting the
+Microsoft license terms.
+
+---
+
 # Wez's Terminal
 
 <img height="128" alt="WezTerm Icon" src="https://raw.githubusercontent.com/wezterm/wezterm/main/assets/icon/wezterm-icon.svg" align="left"> *A GPU-accelerated cross-platform terminal emulator and multiplexer written by <a href="https://github.com/wez">@wez</a> and implemented in <a href="https://www.rust-lang.org/">Rust</a>*

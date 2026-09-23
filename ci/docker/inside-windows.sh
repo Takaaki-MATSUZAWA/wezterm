@@ -11,6 +11,27 @@ bash /src/ci/docker/copy-src.sh /build/src
 cd /build/src
 
 export CARGO_TARGET_DIR=/build/target
+# キャッシュ volume に残った clang-cl の symlink が古い clang を指していると cargo-xwin が失敗するので消す
+rm -f "${XWIN_CACHE_DIR:-/opt/xwin-cache}/clang-cl"
+
+# openssl-src の vendored ビルドは Linux から MSVC 向けに Configure できないので、
+# 同じバージョンの OpenSSL ソースを別途ビルドして openssl-sys に渡す。
+# （xwin の CRT/SDK が必要なので、先に cargo xwin に取得させる）
+cargo fetch --locked >/dev/null
+cargo xwin env --target "$triple" >/dev/null
+ossl_src=$(ls -d /opt/cargo/registry/src/*/openssl-src-*/openssl | sort -V | tail -1)
+ossl_prefix="$CARGO_TARGET_DIR/openssl-msvc"
+before=$(cat "$ossl_prefix/.built-from" 2>/dev/null || true)
+bash /src/ci/docker/build-openssl-msvc.sh "$ossl_src" "$ossl_prefix"
+if [ "$before" != "$(cat "$ossl_prefix/.built-from")" ]; then
+  # 静的ライブラリは依存 crate の rlib に取り込まれるので、OpenSSL を作り直したらそれらも作り直す
+  cargo clean --release --target "$triple" -p openssl-sys -p libssh2-sys -p libssh-rs-sys -p openssl
+fi
+# ホスト向け（build script の依存など）の openssl-sys に影響しないよう、ターゲット名付きの変数で渡す
+export X86_64_PC_WINDOWS_MSVC_OPENSSL_NO_VENDOR=1 \
+  X86_64_PC_WINDOWS_MSVC_OPENSSL_STATIC=1 \
+  X86_64_PC_WINDOWS_MSVC_OPENSSL_DIR="$CARGO_TARGET_DIR/openssl-msvc" \
+  X86_64_PC_WINDOWS_MSVC_OPENSSL_LIBS=libssl:libcrypto
 cargo clean --release --target "$triple" -p wezterm-version
 cargo xwin build --release --locked --target "$triple" \
   -p wezterm -p wezterm-gui -p wezterm-mux-server -p strip-ansi-escapes
