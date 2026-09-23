@@ -1,8 +1,11 @@
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
-    #[cfg(windows)]
-    {
+    // Check the *target* OS rather than using `#[cfg(windows)]`: build
+    // scripts run on the host, so cfg(windows) would skip embedding the
+    // manifest and icon resources when cross compiling for Windows
+    // (eg: via cargo-xwin from Linux).
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         use anyhow::Context as _;
         use std::io::Write;
         use std::path::Path;
@@ -14,51 +17,56 @@ fn main() {
         let exe_output_dir = repo_dir.join("target").join(profile);
         let windows_dir = repo_dir.join("assets").join("windows");
 
-        let conhost_dir = windows_dir.join("conhost");
-        for name in &["conpty.dll", "OpenConsole.exe"] {
-            let dest_name = exe_output_dir.join(name);
-            let src_name = conhost_dir.join(name);
+        // Copy the runtime dependencies next to the executable so that it
+        // can be run directly from the target dir.  This only makes sense
+        // (and the output dir is only correct) for a native Windows build.
+        if cfg!(windows) {
+            let conhost_dir = windows_dir.join("conhost");
+            for name in &["conpty.dll", "OpenConsole.exe"] {
+                let dest_name = exe_output_dir.join(name);
+                let src_name = conhost_dir.join(name);
 
-            if !dest_name.exists() {
-                std::fs::copy(&src_name, &dest_name)
-                    .context(format!(
-                        "copy {} -> {}",
-                        src_name.display(),
-                        dest_name.display()
-                    ))
-                    .unwrap();
+                if !dest_name.exists() {
+                    std::fs::copy(&src_name, &dest_name)
+                        .context(format!(
+                            "copy {} -> {}",
+                            src_name.display(),
+                            dest_name.display()
+                        ))
+                        .unwrap();
+                }
             }
-        }
 
-        let angle_dir = windows_dir.join("angle");
-        for name in &["libEGL.dll", "libGLESv2.dll"] {
-            let dest_name = exe_output_dir.join(name);
-            let src_name = angle_dir.join(name);
+            let angle_dir = windows_dir.join("angle");
+            for name in &["libEGL.dll", "libGLESv2.dll"] {
+                let dest_name = exe_output_dir.join(name);
+                let src_name = angle_dir.join(name);
 
-            if !dest_name.exists() {
-                std::fs::copy(&src_name, &dest_name)
-                    .context(format!(
-                        "copy {} -> {}",
-                        src_name.display(),
-                        dest_name.display()
-                    ))
-                    .unwrap();
+                if !dest_name.exists() {
+                    std::fs::copy(&src_name, &dest_name)
+                        .context(format!(
+                            "copy {} -> {}",
+                            src_name.display(),
+                            dest_name.display()
+                        ))
+                        .unwrap();
+                }
             }
-        }
 
-        {
-            let dest_mesa = exe_output_dir.join("mesa");
-            let _ = std::fs::create_dir(&dest_mesa);
-            let dest_name = dest_mesa.join("opengl32.dll");
-            let src_name = windows_dir.join("mesa").join("opengl32.dll");
-            if !dest_name.exists() {
-                std::fs::copy(&src_name, &dest_name)
-                    .context(format!(
-                        "copy {} -> {}",
-                        src_name.display(),
-                        dest_name.display()
-                    ))
-                    .unwrap();
+            {
+                let dest_mesa = exe_output_dir.join("mesa");
+                let _ = std::fs::create_dir(&dest_mesa);
+                let dest_name = dest_mesa.join("opengl32.dll");
+                let src_name = windows_dir.join("mesa").join("opengl32.dll");
+                if !dest_name.exists() {
+                    std::fs::copy(&src_name, &dest_name)
+                        .context(format!(
+                            "copy {} -> {}",
+                            src_name.display(),
+                            dest_name.display()
+                        ))
+                        .unwrap();
+                }
             }
         }
 
@@ -94,6 +102,10 @@ fn main() {
             ci_tag
         };
 
+        // Paths are joined natively (so they also work when cross compiling
+        // from a non-Windows host) and escaped for use in an .rc string.
+        let rc_path = |p: &Path| p.display().to_string().replace("\\", "\\\\");
+
         let rcfile_name = Path::new(&std::env::var_os("OUT_DIR").unwrap()).join("resource.rc");
         let mut rcfile = std::fs::File::create(&rcfile_name).unwrap();
         println!("cargo:rerun-if-changed=../assets/windows/terminal.ico");
@@ -103,8 +115,8 @@ fn main() {
 #include <winres.h>
 // This ID is coupled with code in window/src/os/windows/window.rs
 #define IDI_ICON 0x101
-1 RT_MANIFEST "{win}\\manifest.manifest"
-IDI_ICON ICON "{win}\\terminal.ico"
+1 RT_MANIFEST "{manifest}"
+IDI_ICON ICON "{icon}"
 VS_VERSION_INFO VERSIONINFO
 FILEVERSION     1,0,0,0
 PRODUCTVERSION  1,0,0,0
@@ -134,7 +146,8 @@ BEGIN
     END
 END
 "#,
-            win = windows_dir.display().to_string().replace("\\", "\\\\"),
+            manifest = rc_path(&windows_dir.join("manifest.manifest")),
+            icon = rc_path(&windows_dir.join("terminal.ico")),
             version = version,
         )
         .unwrap();
