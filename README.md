@@ -32,17 +32,21 @@ cargo build --release
 |--------|--------|
 | `ubuntu20.04-{amd64,arm64}`, `ubuntu22.04-*`, `ubuntu24.04-*`, `debian12-*` | headless `wezterm` (cli) + `wezterm-mux-server` as `.tar.xz` (arm64 is cross compiled) |
 | `windows-x64` | full WezTerm zip (GUI included), cross compiled with [cargo-xwin](https://github.com/rust-cross/cargo-xwin) |
+| `windows-installer` | `WezTerm-<tag>-setup.exe` built from that zip with the upstream `ci/windows-installer.iss` ([Inno Setup](https://jrsoftware.org/isinfo.php) running under wine) |
 
 ```bash
 ci/docker/build.sh list      # show targets
 ci/docker/build.sh linux     # all Linux targets
-ci/docker/build.sh windows   # Windows x64
+ci/docker/build.sh windows   # Windows x64 zip + installer
 ci/docker/build.sh all
 ```
 
 Artifacts are written to `dist/<tag>/`.  The Windows build downloads the
 Microsoft CRT and Windows SDK via cargo-xwin, which implies accepting the
 Microsoft license terms.
+
+The installer uses the same AppId as the upstream installer, so it upgrades
+an existing official WezTerm installation in place.
 
 ---
 

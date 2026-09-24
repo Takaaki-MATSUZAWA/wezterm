@@ -1,0 +1,24 @@
+# 目的: Linux 上で Inno Setup（ISCC.exe）を wine で動かし、Windows 用インストーラーを作る環境イメージ
+# 関連: ci/docker/build.sh（windows-installer ターゲット）, ci/docker/inside-innosetup.sh, ci/windows-installer.iss
+# 前提: Inno Setup のインストーラーは 32bit なので wine32 が必要。版とハッシュは固定する
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN dpkg --add-architecture i386 \
+ && echo 'APT::Install-Recommends "0";' > /etc/apt/apt.conf.d/99-no-recommends \
+ && apt-get update \
+ && apt-get install -y ca-certificates curl unzip xvfb xauth wine wine32:i386 wine64 \
+ && rm -rf /var/lib/apt/lists/*
+
+ARG INNOSETUP_VERSION=6.7.3
+ARG INNOSETUP_SHA256=9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732
+ENV WINEPREFIX=/opt/wine WINEDEBUG=-all WINEARCH=win64
+RUN set -eux; \
+    v=$(echo "$INNOSETUP_VERSION" | tr . _); \
+    curl -sSfL -o /tmp/is.exe "https://github.com/jrsoftware/issrc/releases/download/is-${v}/innosetup-${INNOSETUP_VERSION}.exe"; \
+    echo "${INNOSETUP_SHA256}  /tmp/is.exe" | sha256sum -c -; \
+    xvfb-run -a wine /tmp/is.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP- /DIR='C:\InnoSetup'; \
+    wineserver -w; \
+    test -f "$WINEPREFIX/drive_c/InnoSetup/ISCC.exe"; \
+    rm -f /tmp/is.exe; \
+    chmod -R a+rwX "$WINEPREFIX"

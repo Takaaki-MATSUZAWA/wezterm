@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # 目的: Docker で配布用の wezterm バイナリを生成する
 #       - Linux: headless（wezterm cli + wezterm-mux-server）を各ディストリ × amd64/arm64 で
-#       - Windows: GUI 込み一式を cargo-xwin で x86_64-pc-windows-msvc 向けにクロスビルド
-# 関連: ci/docker/Dockerfile.linux, ci/docker/Dockerfile.windows, ci/docker/inside-*.sh
+#       - Windows: GUI 込み一式を cargo-xwin で x86_64-pc-windows-msvc 向けにクロスビルド（zip）
+#         と、その zip から Inno Setup（wine 上）でインストーラーを作る
+# 関連: ci/docker/Dockerfile.{linux,windows,innosetup}, ci/docker/inside-*.sh, ci/windows-installer.iss
 # 前提: docker が使えること（sudo 不要・ホストの binfmt 変更不要）。成果物は dist/ に出力
 #
 # 使い方:
 #   ci/docker/build.sh ubuntu22.04-amd64 debian12-arm64   # 個別指定
 #   ci/docker/build.sh linux                              # Linux 全ターゲット
-#   ci/docker/build.sh windows                            # Windows x64
+#   ci/docker/build.sh windows                            # Windows x64（zip + インストーラー）
 #   ci/docker/build.sh all                                # 全部
 #   ci/docker/build.sh list                               # ターゲット一覧
 set -euo pipefail
@@ -31,10 +32,10 @@ all_linux() { for d in "${LINUX_DISTROS[@]}"; do for a in "${ARCHES[@]}"; do ech
 targets=()
 for arg in "$@"; do
   case "$arg" in
-    list) all_linux; echo windows-x64; exit 0 ;;
+    list) all_linux; echo windows-x64; echo windows-installer; exit 0 ;;
     linux) mapfile -t -O "${#targets[@]}" targets < <(all_linux) ;;
-    windows) targets+=(windows-x64) ;;
-    all) mapfile -t -O "${#targets[@]}" targets < <(all_linux); targets+=(windows-x64) ;;
+    windows) targets+=(windows-x64 windows-installer) ;;
+    all) mapfile -t -O "${#targets[@]}" targets < <(all_linux); targets+=(windows-x64 windows-installer) ;;
     *) targets+=("$arg") ;;
   esac
 done
@@ -87,6 +88,12 @@ for t in "${targets[@]}"; do
         -v wezterm-xwin-cache:/opt/xwin-cache
         wezterm-build:windows bash /src/ci/docker/inside-windows.sh)
       ;;
+    windows-installer)
+      build_image wezterm-build:innosetup ci/docker/Dockerfile.innosetup
+      cmd=(docker run --rm -e TAG_NAME -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)"
+        -v "$ROOT":/src:ro -v "$OUT":/out
+        wezterm-build:innosetup bash /src/ci/docker/inside-innosetup.sh)
+      ;;
     *-amd64|*-arm64)
       distro=${t%-*} arch=${t##*-}
       base=${BASES[$distro]:-}
@@ -109,7 +116,7 @@ for t in "${targets[@]}"; do
   fi
 done
 
-(cd "$OUT" && sha256sum -- *.tar.xz *.zip 2>/dev/null > SHA256SUMS || true)
+(cd "$OUT" && sha256sum -- *.tar.xz *.zip *.exe 2>/dev/null > SHA256SUMS || true)
 echo "artifacts: $OUT"
 ls -la "$OUT"
 if [ ${#failed[@]} -gt 0 ]; then
